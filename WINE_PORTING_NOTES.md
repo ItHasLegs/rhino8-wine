@@ -5,9 +5,9 @@ Detailed writeup of every problem encountered getting Rhinoceros 8 running under
 > **Note:** the dark-mode fix described here is now **upstream in Wine 11.14**, so
 > stock Wine runs Rhino with no patches — see [README.md](README.md). The build
 > files this document references (`rhino8-wine.patch`, `PKGBUILD`,
-> `find-darkmode-patch.sh`, `test-uxtheme-fix.sh`) now live in
-> [`legacy/`](legacy/), kept only for Wine older than 11.14. This document is
-> preserved as the historical record.
+> `find-darkmode-patch.sh`, `test-uxtheme-fix.sh`) are preserved in this repo's
+> git history (tag `patched-wine-legacy`), kept only for Wine older than 11.14.
+> This document is the historical record.
 
 ---
 
@@ -164,6 +164,14 @@ dark-mode recursion, no stack overflow. This fix is now folded into
 patch to Rhino's DLL is no longer required. (`test-uxtheme-fix.sh` reproduces
 the test by dropping the locally-built `uxtheme.dll` over the wine builtin.)
 
+The undocumented export signatures were derived entirely from public
+reverse-engineering references (clean-room; no Microsoft/Windows source):
+
+- https://www.quppa.net/blog/2013/01/02/retrieving-windows-8-theme-colours/
+- https://gist.github.com/smourier/d9de36c49e19aa9923d5143965057405 (ordinal 100)
+- https://github.com/pbatard/list-immersive-colors
+- https://github.com/MahdiSafsafi/ImmersiveColors
+
 ---
 
 ### Problem 3: No X11 Display
@@ -274,12 +282,11 @@ this build:
 | RVA | `0xe0b50` | `0x136c40` |
 | File offset | `0xdff50` | `0x136040` |
 
-Because this offset shifts between builds, use
-[`find-darkmode-patch.sh`](legacy/find-darkmode-patch.sh) instead of a hardcoded
-offset:
+Because this offset shifts between builds, use `find-darkmode-patch.sh` (in git history,
+tag `patched-wine-legacy`) instead of a hardcoded offset:
 
 ```bash
-./legacy/find-darkmode-patch.sh "$WINEPREFIX/drive_c/Program Files/Rhino 9 WIP/System/rhcommon_c.dll" --apply
+./find-darkmode-patch.sh "$WINEPREFIX/drive_c/Program Files/Rhino 9 WIP/System/rhcommon_c.dll" --apply
 ```
 
 It locates the export via the DLL's own export table and section headers,

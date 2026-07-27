@@ -3,9 +3,7 @@
 Scripts and instructions to install and run **Rhino 8** and the **Rhino 9 WIP** on
 Linux under [Wine](https://www.winehq.org/).
 
-As of **Wine 11.14**, Rhino runs on unmodified upstream Wine — the fix it needs is
-merged ([WineHQ MR !11223](https://gitlab.winehq.org/wine/wine/-/merge_requests/11223)).
-This repo provides two scripts:
+As of **Wine 11.14**, Rhino runs on **stock Wine**. This repo provides two scripts:
 
 - `install-rhino.sh` — creates an isolated Wine prefix, runs the Rhino installer, and
   adds a launcher and application-menu entry.
@@ -114,9 +112,7 @@ WINEPREFIX=~/.local/share/wineprefixes/rhino9wip ./run-rhino.sh
 
 If viewports render incorrectly (red/black, objects vanishing), switch **Options → View →
 GPU → GPU Technology → OpenGL** and restart Rhino. Rhino 9 WIP defaults to Direct3D, which
-misbehaves under Wine on some GPUs (seen on Nvidia + Wayland/XWayland). See
-[WINE_PORTING_NOTES.md](WINE_PORTING_NOTES.md#rhino-9-wip-experimental) for version-specific
-notes.
+misbehaves under Wine on some GPUs (seen on Nvidia + Wayland/XWayland).
 
 ## Bottles / Lutris
 
@@ -136,20 +132,6 @@ manager at system Wine, before running the installer.
 | Start clean | Delete the prefix (`rm -rf ~/.local/share/wineprefixes/rhino8`) and re-run `install-rhino.sh`. |
 
 Launcher logs are written to `/tmp/rhino.log`.
-
-## Background
-
-Rhino's `RhOSInDarkMode` (in `RhinoCore.dll`) probes OS dark mode via four undocumented
-`uxtheme.dll` immersive-color exports. Older Wine lacked them, so the probe entered a
-managed-callback loop that recursed until the stack overflowed (~255,000 frames), crashing
-Rhino on launch. The exports were added to Wine's `uxtheme` and merged upstream
-([WineHQ MR !11223](https://gitlab.winehq.org/wine/wine/-/merge_requests/11223)), shipping in
-11.14. An installer-time Authenticode workaround that older Wine also required is likewise
-unnecessary on ≥ 11.14.
-
-The old patched-Wine build (`rhino8-wine.patch`, `PKGBUILD`, and helpers) is in
-[`legacy/`](legacy/) for Wine older than 11.14. Full debugging details are in
-[WINE_PORTING_NOTES.md](WINE_PORTING_NOTES.md).
 
 ---
 
