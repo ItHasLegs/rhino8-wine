@@ -95,11 +95,19 @@ WINEPREFIX=$WINEPREFIX wine "$WINEPREFIX/drive_c/Program Files/Rhino 8/System/Rh
 ./run-rhino.sh
 ```
 
+Manual equivalent:
+```bash
+export WINEPREFIX=~/.local/share/wineprefixes/rhino8
+wine "$WINEPREFIX/drive_c/Program Files/Rhino 8/System/Rhino.exe"
+```
+
 On first launch, Rhino prompts for sign-in (Rhino Account / Cloud Zoo) to activate the
 license. If the browser redirects to `http://127.0.0.1:1717/` and cannot connect, restart
-the licensing server:
+the licensing server and launch again:
 ```bash
 ./run-rhino.sh --fresh
+# or manually:
+WINEPREFIX=~/.local/share/wineprefixes/rhino8 wineserver -k    # then relaunch
 ```
 
 ## Rhino 9 WIP
