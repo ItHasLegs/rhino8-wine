@@ -2,7 +2,7 @@ diff --git a/dlls/uxtheme/system.c b/dlls/uxtheme/system.c
 index 8f963115cde..a57674adf41 100644
 --- a/dlls/uxtheme/system.c
 +++ b/dlls/uxtheme/system.c
-@@ -1334,3 +1334,60 @@ BOOLEAN WINAPI IsDarkModeAllowedForWindow(HWND hwnd)
+@@ -1334,3 +1334,56 @@ BOOLEAN WINAPI IsDarkModeAllowedForWindow(HWND hwnd)
      FIXME("%p: stub\n", hwnd);
      return FALSE;
  }
@@ -14,33 +14,27 @@ index 8f963115cde..a57674adf41 100644
 + * (by name) together with GetImmersiveUserColorSetPreference and ordinals
 + * 96/100, and gate their OS dark-mode probe on all four being present. If
 + * any is missing the app falls back to a callback that re-enters the probe,
-+ * recursing until the stack overflows. We return the requested colour
-+ * following AppsUseLightTheme so callers that inspect the application-text
-+ * colour see a result consistent with the user's setting: dark mode ->
++ * recursing until the stack overflows. We return the requested color
++ * following ShouldAppsUseDarkMode so callers that inspect the application-text
++ * color see a result consistent with the user's setting: dark mode ->
 + * bright text (white), light mode -> black.
 + */
 +DWORD WINAPI GetImmersiveColorFromColorSetEx(UINT color_set, UINT color_type,
 +                                             BOOL ignore_high_contrast, UINT high_contrast_cache_mode)
 +{
-+    DWORD light_theme = TRUE, light_theme_size = sizeof(light_theme);
-+
 +    FIXME("(%u, %u, %d, %u): semi-stub\n", color_set, color_type,
 +          ignore_high_contrast, high_contrast_cache_mode);
 +
-+    RegGetValueW(HKEY_CURRENT_USER,
-+                 L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
-+                 L"AppsUseLightTheme", RRF_RT_REG_DWORD, NULL, &light_theme, &light_theme_size);
-+
-+    return light_theme ? 0x00000000 : 0x00ffffff;
++    return ShouldAppsUseDarkMode() ? 0xffffffff : 0xff000000;
 +}
 +
 +/**********************************************************************
 + *      GetImmersiveColorTypeFromName                     (UXTHEME.96)
 + */
-+int WINAPI GetImmersiveColorTypeFromName(const WCHAR *name)
++UINT WINAPI GetImmersiveColorTypeFromName(const WCHAR *name)
 +{
 +    FIXME("%s: stub\n", debugstr_w(name));
-+    return 0;
++    return ~0u;   /* unknown name, as on Windows; Rhino passes it through unchecked */
 +}
 +
 +/**********************************************************************
@@ -56,9 +50,11 @@ index 8f963115cde..a57674adf41 100644
 + *      GetImmersiveColorNamedTypeByIndex                 (UXTHEME.100)
 + *
 + * Probe requires the export to exist (non-null pointer); it is never
-+ * actually called on the dark-mode detection path.
++ * actually called on the dark-mode detection path. Returns a pointer to
++ * a wide-string pointer (the type name without its "Immersive" prefix),
++ * or NULL when the index is out of range.
 + */
-+const void * WINAPI GetImmersiveColorNamedTypeByIndex(UINT index)
++const WCHAR ** WINAPI GetImmersiveColorNamedTypeByIndex(UINT index)
 +{
 +    FIXME("%u: stub\n", index);
 +    return NULL;

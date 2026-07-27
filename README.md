@@ -1,202 +1,232 @@
-# rhino8-wine
+# Run Rhinoceros 3D on Linux with Wine
 
-Patches and instructions to run **Rhinoceros 8** on Linux under Wine 11.9.
+A beginner-friendly guide to running **Rhino 8** (and the **Rhino 9 WIP**) on Linux
+under [Wine](https://www.winehq.org/) — **no patched Wine, no DLL hacks, no compiling.**
 
-Tested on **Ubuntu 24.04.4 LTS (Noble Numbat)**, kernel 6.17, with Rhino **8.31.26126.13431**.
+As of **Wine 11.14**, everything Rhino needs to launch is upstream. You install a
+recent-enough Wine, run Rhino's normal Windows installer inside a Wine "prefix"
+(a self-contained fake `C:\` drive), sign in, and go.
 
-_Note: Claude Code was used in this project._
+> **The one thing you must get right:** you need **Wine ≥ 11.14** from the
+> **devel** or **staging** branch. The `stable` branch is still **11.0**, which
+> is missing the fix and will crash Rhino on launch. See
+> [Step 1](#step-1-install-wine-1114) — this is the mistake to avoid.
 
-Rhino 8 uses .NET 8 via Microsoft's CLR, which was not working when trying to run with Wine. Initially, installation was successful however a stack overflow would occur when trying to run Rhino 8: 
-
-`err:virtual:virtual_setup_exception stack overflow 4672 bytes addr 0x6ffffff85ebe stack 0x7ffffe0ffdc0 (0x7ffffe100000-0x7ffffe101000-0x7ffffe200000)`
-
-Patches:
-
-1. **Dark mode detection caused 254,955-deep mutual recursion** — Rhino's OS dark-mode probe (`RhOSInDarkMode` in `RhinoCore.dll`) resolves four undocumented `uxtheme.dll` immersive-color exports at runtime; Wine didn't provide them, so the probe fell back to a managed callback that re-entered it, recursing until the stack overflowed. Fixed by adding the missing exports to Wine's `uxtheme` (in `rhino8-wine.patch`) — **no patching of Rhino's own DLLs required.**
-
-Environment Specific Issues:
-
-1. **Wine can't verify Microsoft Authenticode signatures** — missing CA root store causes installer verification to fail. Patched `wintrust` to return success while still populating certificate state.
-2. **OAuth licensing callback (port 1717) never bound** — stale `http.sys` state from a previous run blocked the port. Fixed by killing the wineserver before launch.
-
-See [WINE_PORTING_NOTES.md](WINE_PORTING_NOTES.md) for a detailed writeup of each problem.
+|  |  |
+|--|--|
+| ![Rhino 8 on Ubuntu](desktop_screenshot.jpeg) | ![Rhino 8 on Arch](arch_desktop_screenshot.png) |
 
 ---
 
-## Setup
+## What you need
 
-### Ubuntu 24.04 LTS
+- A 64-bit Linux desktop (X11 or Wayland). Tested on Ubuntu 24.04 and Arch.
+- **Wine ≥ 11.14** (devel or staging branch — *not* stable). Instructions below.
+- The **Rhino installer** for Windows — download from
+  [rhino3d.com/download](https://www.rhino3d.com/download/) (Rhino 8, or the Rhino 9 WIP).
+- A **Rhino license** (or the free 90-day evaluation) — you'll sign in on first launch.
 
-#### 1. Install build dependencies
+Rhino's installer bundles its own prerequisites (Visual C++ runtimes, WebView2,
+.NET 8 Desktop Runtime, ASP.NET Core Runtime), so there is **no winetricks step**.
+
+---
+
+## Quick start (3 steps)
 
 ```bash
+# 1. Install Wine >= 11.14 (see Step 1 for your distro), then:
+git clone https://github.com/ItHasLegs/rhino8-wine
+cd rhino8-wine
+
+# 2. Install Rhino into its own prefix (point it at the installer you downloaded):
+./install-rhino.sh ~/Downloads/rhino_en-us_8.x.x.x.exe
+
+# 3. Launch it (or use the "Rhino 8 (Wine)" entry added to your app menu):
+./run-rhino.sh
+```
+
+That's it. The rest of this README explains each step and how to handle the
+common snags.
+
+---
+
+## Step 1: Install Wine (≥ 11.14)
+
+> ⚠️ **Do not install `winehq-stable`.** At the time of writing it is **11.0**,
+> which lacks the exports Rhino's dark-mode detection needs — Rhino will crash on
+> launch with a stack overflow. Install the **devel** or **staging** branch, which
+> is **≥ 11.14**. (Once Wine **12.0 stable** ships, stable will be fine too.)
+
+**Arch Linux / Manjaro**
+```bash
+sudo pacman -S wine-staging      # rolling release — already 11.14+
+```
+
+**Ubuntu / Debian** (via the official WineHQ repository)
+```bash
+sudo dpkg --add-architecture i386
+sudo mkdir -pm755 /etc/apt/keyrings
+wget -O - https://dl.winehq.org/wine-builds/winehq.key | sudo gpg --dearmor -o /etc/apt/keyrings/winehq-archive.key -
+sudo wget -NP /etc/apt/sources.list.d/ \
+  "https://dl.winehq.org/wine-builds/ubuntu/dists/$(lsb_release -sc)/winehq-$(lsb_release -sc).sources"
 sudo apt update
-sudo apt install -y \
-  build-essential git autoconf bison flex python3 pkg-config \
-  gcc-mingw-w64 \
-  libx11-dev libxext-dev libxrandr-dev libxcomposite-dev libxcursor-dev \
-  libxi-dev libxinerama-dev libxrender-dev libxxf86vm-dev \
-  libxfixes-dev libxdamage-dev \
-  libfreetype-dev libfontconfig-dev \
-  libgnutls28-dev \
-  libgl-dev \
-  libvulkan-dev vulkan-headers \
-  libwayland-dev \
-  libpulse-dev \
-  libcups2-dev libpcap-dev libsdl2-dev libv4l-dev \
-  ocl-icd-opencl-dev libpcsclite-dev unixodbc-dev \
-  libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
-  libssl-dev
+sudo apt install --install-recommends winehq-staging   # NOT winehq-stable
 ```
+(Debian: swap `ubuntu` for `debian` and use your release codename.)
 
-#### 2. Build and install the patched Wine
-
-Ubuntu doesn't have `makepkg` so build manually:
-
+**Fedora**
 ```bash
-git clone https://github.com/ItHasLegs/rhino8-wine
-cd rhino8-wine
-
-# Clone Wine at the tested commit
-git clone https://github.com/wine-mirror/wine.git wine-src
-cd wine-src
-git checkout 11c0254541e169e80495f4f48f7231af36ff8a0c
-cd ..
-
-# Apply the patch
-cd wine-src
-git apply ../rhino8-wine.patch
-cd ..
-
-# Configure and build
-mkdir wine-build && cd wine-build
-../wine-src/configure \
-  --prefix=/opt/wine-rhino8 \
-  --enable-archs=i386,x86_64 \
-  --with-x \
-  --with-wayland \
-  --with-vulkan \
-  --with-openssl
-make -j$(nproc)
-sudo make install
+# Fedora 41+ (dnf5):
+sudo dnf config-manager addrepo --from-repofile=https://dl.winehq.org/wine-builds/fedora/$(rpm -E %fedora)/winehq.repo
+# Older Fedora (dnf4): sudo dnf config-manager --add-repo https://dl.winehq.org/wine-builds/fedora/$(rpm -E %fedora)/winehq.repo
+sudo dnf install winehq-staging
 ```
+
+**Verify you got a new enough version:**
+```bash
+wine --version      # must be wine-11.14 or newer
+```
+If this prints `wine-11.0` (or anything below 11.14) you installed the stable
+branch — remove it and install **staging** or **devel** instead.
 
 ---
 
-### Arch Linux
+## Step 2: Install Rhino
 
-#### 1. Install build dependencies
+The included `install-rhino.sh` does the whole setup for you:
 
 ```bash
-sudo pacman -S --needed \
-  base-devel git \
-  mingw-w64-gcc \
-  autoconf bison flex perl python \
-  lib32-glibc lib32-gcc-libs \
-  vulkan-headers \
-  fontconfig freetype2 gnutls libxcomposite libxcursor libxdamage \
-  libxext libxfixes libxi libxinerama libxrandr libxrender libxxf86vm \
-  mesa opencl-icd-loader openssl pcsclite sdl2 v4l-utils \
-  vulkan-icd-loader wayland gst-plugins-base-libs libcups libpcap libpulse
+./install-rhino.sh /path/to/rhino_installer.exe [optional_prefix_dir]
 ```
 
-#### 2. Build and install the patched Wine
+It will:
+1. Check that your Wine is ≥ 11.14 (and stop with a clear message if not).
+2. Create a fresh, isolated prefix (default:
+   `~/.local/share/wineprefixes/rhino8`).
+3. Run Rhino's installer — a normal Windows installer window opens; click through it.
+4. Add a **launcher** and an **application-menu entry** (e.g. "Rhino 8 (Wine)").
+
+<details>
+<summary><b>Prefer to do it by hand? (manual steps)</b></summary>
 
 ```bash
-git clone https://github.com/ItHasLegs/rhino8-wine
-cd rhino8-wine
-makepkg -si
-```
-
-Clones Wine at the tested commit, applies the patches, builds (~20–40 min), and installs to `/opt/wine-rhino8`. Your system Wine is untouched.
-
----
-
-### 3. Install Rhino
-
-```bash
+# 1. Pick an isolated prefix for Rhino
 export WINEPREFIX=~/.local/share/wineprefixes/rhino8
-export WINE=/opt/wine-rhino8/bin/wine
 
-# Create the prefix
-WINEPREFIX=$WINEPREFIX WINEDEBUG=-all $WINE wineboot
+# 2. Create it
+WINEPREFIX=$WINEPREFIX wineboot -u
 
-# Run the Rhino installer — it bundles and auto-installs all prerequisites
-# (VC2013, VC2015, WebView2, .NET 8 Desktop Runtime, ASP.NET Core Runtime)
-WINEPREFIX=$WINEPREFIX WINEDEBUG=-all $WINE RhinoInstaller.exe
+# 3. Run the installer (bundles all prerequisites; just click through)
+WINEPREFIX=$WINEPREFIX wine /path/to/rhino_installer.exe
+
+# 4. Launch Rhino
+WINEPREFIX=$WINEPREFIX \
+  wine "$WINEPREFIX/drive_c/Program Files/Rhino 8/System/Rhino.exe"
 ```
+</details>
 
-The `wintrust` patch (included in `rhino8-wine.patch`) is required for the installer to complete — Wine lacks the Microsoft CA root store needed to verify the installer's Authenticode signatures, and without the patch it fails during package verification.
+---
 
-> **No DLL patching needed.** The dark-mode recursion fix lives in
-> `rhino8-wine.patch` (it adds the missing exports to Wine's `uxtheme`), so
-> Rhino's own `rhcommon_c.dll` is left untouched. If you ever run Rhino under
-> *stock* Wine instead of this patched build, you'd need the binary fallback —
-> see [`find-darkmode-patch.sh`](find-darkmode-patch.sh).
+## Step 3: Launch Rhino & sign in
 
-### 4. Run Rhino
+Use the app-menu entry, or:
 
 ```bash
 ./run-rhino.sh
 ```
 
-If the licensing OAuth flow fails (Firefox redirects to `http://127.0.0.1:1717/` and gets "can't connect"), run:
+On first launch Rhino asks you to **sign in** (Rhino Account / Cloud Zoo) to
+activate your license.
+
+**If licensing fails** — the browser redirects to `http://127.0.0.1:1717/` and
+shows "can't connect" — it's stale internal HTTP state. Restart the licensing
+server and try again:
 
 ```bash
 ./run-rhino.sh --fresh
 ```
 
-This kills and restarts the wineserver, resetting the internal HTTP server state that handles the OAuth callback.
+---
 
-### Ubuntu 24.04
+## Rhino 9 WIP (experimental)
 
-![Rhino 8 running on Ubuntu](desktop_screenshot.jpeg)
+The same stock Wine runs the Rhino 9 WIP. **Use a separate prefix** so your
+working Rhino 8 setup is untouched:
 
-### Arch Linux
+```bash
+./install-rhino.sh ~/Downloads/rhino_9.x.x.x.exe ~/.local/share/wineprefixes/rhino9wip
+```
 
-![Rhino 8 running on Arch Linux](arch_desktop_screenshot.png)
+Then launch it with:
+
+```bash
+WINEPREFIX=~/.local/share/wineprefixes/rhino9wip ./run-rhino.sh
+```
+
+**If viewports render wrong (red/black, objects vanishing):** Rhino 9 WIP
+defaults to Direct3D, which can misbehave under Wine on some GPUs (seen on
+Nvidia + Wayland/XWayland). Switch to OpenGL: **Options → View → GPU → GPU
+Technology → OpenGL**, then restart Rhino.
+
+The Rhino 9 WIP changes often; see
+[WINE_PORTING_NOTES.md](WINE_PORTING_NOTES.md#rhino-9-wip-experimental) for
+version-specific notes.
 
 ---
 
-## Rhino 9 WIP (Experimental)
+## Using a GUI manager instead (Bottles / Lutris)
 
-The same `wine-rhino8` build also runs the Rhino 9 WIP installer and Rhino 9
-itself — no source patches needed updating. The dark-mode recursion has the
-same root cause as in Rhino 8, so the `uxtheme` fix in `rhino8-wine.patch`
-covers it build-wide; no per-DLL patch is needed (if a newer WIP build still
-trips it, [`find-darkmode-patch.sh`](find-darkmode-patch.sh) remains as a
-binary fallback). One Rhino-9-specific step may be needed beyond the Rhino 8
-instructions above. Rhino 9 WIP changes frequently; see
-[WINE_PORTING_NOTES.md](WINE_PORTING_NOTES.md#rhino-9-wip-experimental) for
-the details and version-specific numbers behind these steps.
+If you'd rather not touch a terminal, GUI Wine managers like
+[Bottles](https://usebottles.com/) or [Lutris](https://lutris.net/) can create
+and manage the prefix for you. **One important caveat:** these ship their own
+bundled Wine "runners", and **the runner must be Wine ≥ 11.14** for Rhino to
+launch. Many default runners (e.g. Bottles' Proton-based *Soda*) are older or
+game-focused and **may not include the fix** — if Rhino crashes on launch, the
+runner is too old.
 
-Use a separate prefix so your working Rhino 8 setup is unaffected:
+In Bottles: create a bottle, then in its settings pick a **runner that is
+≥ 11.14** (a recent vanilla/staging runner) — or point Bottles at your **system
+Wine** — before running the Rhino installer. Everything else (sign-in, the port
+1717 note) is the same.
 
-```bash
-export WINEPREFIX=~/.local/share/wineprefixes/rhino9wip
-export WINE=/opt/wine-rhino8/bin/wine
+---
 
-WINEPREFIX=$WINEPREFIX WINEDEBUG=-all $WINE wineboot
+## Troubleshooting
 
-# Run the Rhino 9 WIP installer (GUI, needs a real X11/Wayland session —
-# even with /quiet, Burn's bootstrapper requires a window and will hang
-# without one)
-WINEPREFIX=$WINEPREFIX WINEDEBUG=-all $WINE /path/to/rhino_9.x.x.x.exe
-```
+| Symptom | Cause & fix |
+|--------|-------------|
+| Rhino crashes on launch with `stack overflow` | Your Wine is **older than 11.14** (probably `winehq-stable` 11.0). Install **staging/devel ≥ 11.14**. |
+| Installer fails at "package verification" | You're on an **old Wine**; ≥ 11.14 verifies Rhino's Microsoft-signed packages fine. |
+| Licensing page can't reach `127.0.0.1:1717` | Stale HTTP state — relaunch with `./run-rhino.sh --fresh`. |
+| Rhino 9 WIP viewports are black/red | Switch **GPU Technology → OpenGL** (see above). |
+| Want to start completely clean | Delete the prefix dir (e.g. `rm -rf ~/.local/share/wineprefixes/rhino8`) and re-run `install-rhino.sh`. |
 
-### 1. If viewports render incorrectly, try switching GPU Technology to OpenGL
+Full runtime logs from the launcher are written to `/tmp/rhino.log`.
 
-Rhino 9 WIP defaults to Direct3D for viewport rendering. On at least one
-tested system (Nvidia, Wayland/XWayland), this rendered incorrectly under
-Wine (red/black viewports, objects vanishing after the command that created
-them finishes); switching to OpenGL fixed it. This is likely
-platform-dependent (GPU vendor/driver/Vulkan setup), so your mileage may
-vary. If you hit similar symptoms: **Options → View → GPU → GPU Technology →
-OpenGL**, then restart Rhino.
+---
 
-### 2. Run Rhino 9
+## Background: why this used to need patches
 
-```bash
-DISPLAY="${DISPLAY:-:0}" WINEPREFIX=$WINEPREFIX $WINE \
-  "$WINEPREFIX/drive_c/Program Files/Rhino 9 WIP/System/Rhino.exe"
-```
+Getting Rhino to launch on Wine originally required a **custom-patched Wine
+build**. Rhino's `RhOSInDarkMode` (in `RhinoCore.dll`) probes the OS dark-mode
+setting via four undocumented `uxtheme.dll` immersive-color exports; Wine didn't
+provide them, so the probe fell into a managed-callback loop that recursed until
+the stack overflowed (~255,000 frames) and Rhino died on launch.
+
+The fix was to add those exports to Wine's `uxtheme`. That change was
+**contributed upstream and merged into Wine, shipping in 11.14**
+([WineHQ MR !11223](https://gitlab.winehq.org/wine/wine/-/merge_requests/11223)) —
+so **no patched Wine is needed anymore.** An installer-time Authenticode
+signature workaround that older Wine also needed is likewise no longer required
+on ≥ 11.14.
+
+The old patched-Wine build (`wine-rhino8` / `rhino8-wine.patch`) now lives in
+[`legacy/`](legacy/) for anyone stuck on Wine older than 11.14, and the full
+debugging write-up is in
+[WINE_PORTING_NOTES.md](WINE_PORTING_NOTES.md).
+
+---
+
+*Rhinoceros® and Rhino® are trademarks of Robert McNeel & Associates. This is an
+unofficial community guide and is not affiliated with or endorsed by McNeel.
+Claude Code was used in this project.*

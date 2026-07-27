@@ -2,10 +2,13 @@
 # Wine patched for Rhino 8 on Linux.
 # Installs to /opt/wine-rhino8 — does NOT conflict with system wine.
 #
-# Patches applied:
-#   1. ntdll: force 512 MB thread stacks + clamp StackLimit to 1 MB for .NET 8 CLR
-#   2. ntdll: move guard page to +64 KB on large stacks so overflow frames can be delivered
-#   3. wintrust: override Authenticode result to S_OK (Wine lacks MS CA store)
+# LEGACY: only needed for Wine < 11.14. As of Wine 11.14 the uxtheme exports are
+# upstream and the wintrust override is no longer required, so stock Wine runs
+# Rhino with no patch — see the top-level README.md. Kept here for older Wine.
+#
+# Patches applied (see rhino8-wine.patch):
+#   1. uxtheme: add the immersive-color exports Rhino's dark-mode probe needs
+#   2. wintrust: override Authenticode result to S_OK (Wine lacks MS CA store)
 
 pkgname=wine-rhino8
 pkgver=11.9

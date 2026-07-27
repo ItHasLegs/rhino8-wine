@@ -2,6 +2,13 @@
 
 Detailed writeup of every problem encountered getting Rhinoceros 8 running under Wine 11.9. For setup instructions see [README.md](README.md).
 
+> **Note:** the dark-mode fix described here is now **upstream in Wine 11.14**, so
+> stock Wine runs Rhino with no patches — see [README.md](README.md). The build
+> files this document references (`rhino8-wine.patch`, `PKGBUILD`,
+> `find-darkmode-patch.sh`, `test-uxtheme-fix.sh`) now live in
+> [`legacy/`](legacy/), kept only for Wine older than 11.14. This document is
+> preserved as the historical record.
+
 ---
 
 ## What Was Changed and Why
@@ -268,11 +275,11 @@ this build:
 | File offset | `0xdff50` | `0x136040` |
 
 Because this offset shifts between builds, use
-[`find-darkmode-patch.sh`](find-darkmode-patch.sh) instead of a hardcoded
+[`find-darkmode-patch.sh`](legacy/find-darkmode-patch.sh) instead of a hardcoded
 offset:
 
 ```bash
-./find-darkmode-patch.sh "$WINEPREFIX/drive_c/Program Files/Rhino 9 WIP/System/rhcommon_c.dll" --apply
+./legacy/find-darkmode-patch.sh "$WINEPREFIX/drive_c/Program Files/Rhino 9 WIP/System/rhcommon_c.dll" --apply
 ```
 
 It locates the export via the DLL's own export table and section headers,
