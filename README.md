@@ -86,7 +86,6 @@ Manual equivalent:
 export WINEPREFIX=~/.local/share/wineprefixes/rhino8
 WINEPREFIX=$WINEPREFIX wineboot -u
 WINEPREFIX=$WINEPREFIX wine /path/to/rhino_installer.exe
-WINEPREFIX=$WINEPREFIX wine "$WINEPREFIX/drive_c/Program Files/Rhino 8/System/Rhino.exe"
 ```
 
 ## 3. Launch and sign in
